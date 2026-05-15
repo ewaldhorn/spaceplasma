@@ -1,2 +1,4 @@
 .zig-cache
 web/plasma.wasm
+dist
+node_modules

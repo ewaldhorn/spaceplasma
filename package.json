@@ -5,8 +5,9 @@
   "main": "web/main.js",
   "type": "module",
   "scripts": {
-    "build": "echo '🚀 Compiling Zig to WebAssembly (ReleaseFast)...' && zig build -Doptimize=ReleaseFast",
+    "build": "echo '🚀 Compiling Zig to WebAssembly (ReleaseSmall)...' && zig build -Doptimize=ReleaseSmall",
     "build:debug": "echo '🚀 Compiling Zig to WebAssembly (Debug)...' && zig build",
+    "build:dist": "bun run build && echo '📦 Initiating full asset compression pipeline...' && bun run scripts/build_dist.ts",
     "dev": "bun run build && echo '🌐 Starting local dev server...' && bun x serve web -l 9000",
     "start": "bun x serve web -l 9000"
   },
@@ -17,5 +18,10 @@
     "retro"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@types/clean-css": "^4.2.11",
+    "clean-css": "^5.3.3",
+    "html-minifier-terser": "^7.2.0"
+  }
 }
