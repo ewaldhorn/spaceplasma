@@ -4,9 +4,9 @@ const SoftwareRenderer = @import("SoftwareRenderer.zig").SoftwareRenderer;
 
 pub const Colour = types.Colour;
 
-// Native high-resolution configuration
-pub const screen_width = 800;
-pub const screen_height = 600;
+// Mobile-optimised native resolution configuration (4x lower compute load)
+pub const screen_width = 400;
+pub const screen_height = 300;
 
 // Declare screen buffer
 pub var buffer: [screen_width * screen_height * 4]u8 = undefined;
@@ -69,13 +69,16 @@ fn updatePalette(t: f32) void {
     }
 }
 
-/// Native 800x600 Highly-Interactive Mathematical Renderer.
+/// Native 400x300 Highly-Interactive Mathematical Renderer.
 pub fn update(real_t: f32) void {
     _ = real_t;
 
     // Rigid time step
     internal_clock += 0.005;
     const t = internal_clock;
+
+    // Internal spatial scale factor to perfectly match 800x600 mathematical visual frequency
+    const scale_factor: f32 = 2.0;
 
     // 1. Smoothly lerp the active interaction strength (glow in/out dynamics)
     var target_strength: f32 = 0.0;
@@ -92,26 +95,26 @@ pub fn update(real_t: f32) void {
 
     // V1 Projection
     for (0..screen_width) |cx_idx| {
-        const cx = @as(f32, @floatFromInt(cx_idx));
+        const cx = @as(f32, @floatFromInt(cx_idx)) * scale_factor;
         v1_cache[cx_idx] = @sin(cx / 45.0 + t * 1.2);
     }
 
     // V2 Projection
     for (0..screen_height) |cy_idx| {
-        const cy = @as(f32, @floatFromInt(cy_idx));
+        const cy = @as(f32, @floatFromInt(cy_idx)) * scale_factor;
         v2_cache[cy_idx] = @sin((cy / 35.0 + t * 0.9) * 1.3);
     }
 
     // V3 Projection
     for (0..(screen_width + screen_height)) |diag1_idx| {
-        const ci = @as(f32, @floatFromInt(diag1_idx));
+        const ci = @as(f32, @floatFromInt(diag1_idx)) * scale_factor;
         v3_cache[diag1_idx] = @sin(ci / 50.0 + t * 1.5);
     }
 
     // V4 Projection
     const height_f = @as(f32, @floatFromInt(screen_height));
     for (0..(screen_width + screen_height)) |diag2_idx| {
-        const val = @as(f32, @floatFromInt(diag2_idx)) - height_f;
+        const val = (@as(f32, @floatFromInt(diag2_idx)) - height_f) * scale_factor;
         v4_cache[diag2_idx] = @sin(val / 70.0 - t * 1.1);
     }
 
@@ -120,10 +123,13 @@ pub fn update(real_t: f32) void {
         const ripple_scale: f32 = 1200.0; // Space multiplier for ring frequency
         const radius_sq: f32 = 180.0 * 180.0; // Standard Gaussian falloff radius
 
+        const scaled_mouse_x = mouse_x * scale_factor;
+        const scaled_mouse_y = mouse_y * scale_factor;
+
         // X dimension factors
         for (0..screen_width) |rx_idx| {
-            const cx = @as(f32, @floatFromInt(rx_idx));
-            const dx = cx - mouse_x;
+            const cx = @as(f32, @floatFromInt(rx_idx)) * scale_factor;
+            const dx = cx - scaled_mouse_x;
             const dx_sq = dx * dx;
             // Expand ripple outwards over time
             const angle = dx_sq / ripple_scale - t * 9.0;
@@ -134,8 +140,8 @@ pub fn update(real_t: f32) void {
 
         // Y dimension factors
         for (0..screen_height) |ry_idx| {
-            const cy = @as(f32, @floatFromInt(ry_idx));
-            const dy = cy - mouse_y;
+            const cy = @as(f32, @floatFromInt(ry_idx)) * scale_factor;
+            const dy = cy - scaled_mouse_y;
             const dy_sq = dy * dy;
             const angle = dy_sq / ripple_scale;
             my_sin[ry_idx] = @sin(angle);
@@ -150,27 +156,28 @@ pub fn update(real_t: f32) void {
 
     const pixels: *[screen_width * screen_height]Colour = @ptrCast(&buffer);
 
-    for (0..screen_height) |y| {
-        const v2 = v2_cache[y];
+    // Loop unswitching: By completely separating the outer conditional check,
+    // the compiler can auto-vectorize the branch-free loops for massive performance gains!
+    if (has_ripple) {
+        for (0..screen_height) |y| {
+            const v2 = v2_cache[y];
 
-        // Pre-fetch Y-ripple projections once per row
-        const mys = if (has_ripple) my_sin[y] else 0.0;
-        const myc = if (has_ripple) my_cos[y] else 0.0;
-        const myw = if (has_ripple) my_weight[y] else 0.0;
+            // Pre-fetch Y-ripple projections once per row
+            const mys = my_sin[y];
+            const myc = my_cos[y];
+            const myw = my_weight[y];
 
-        const row_idx = y * screen_width;
+            const row_idx = y * screen_width;
 
-        for (0..screen_width) |x| {
-            const v1 = v1_cache[x];
-            const v3 = v3_cache[x + y];
-            const v4 = v4_cache[x + screen_height - y];
+            for (0..screen_width) |x| {
+                const v1 = v1_cache[x];
+                const v3 = v3_cache[x + y];
+                const v4 = v4_cache[x + screen_height - y];
 
-            // Compound wave construction
-            var composite = v1 + v2 + v3 + v4;
+                // Compound wave construction
+                var composite = v1 + v2 + v3 + v4;
 
-            // Dynamic Interactive Ripple Injection
-            if (has_ripple) {
-                // 1D Cos/Sin fetch
+                // Dynamic Interactive Ripple Injection
                 const mxs = mx_sin[x];
                 const mxc = mx_cos[x];
                 const mxw = mx_weight[x];
@@ -183,13 +190,33 @@ pub fn update(real_t: f32) void {
 
                 // Inject into composite wave field
                 composite += ripple_pixel * 4.0; // 4.0 multiplier for vibrant impact
+
+                // Translate composite range perfectly to the 4096 12-bit palette
+                const val_ratio = (composite + 4.0) / 8.0;
+                const palette_idx = @as(usize, @intFromFloat(std.math.clamp(val_ratio * 4095.99, 0.0, 4095.0))) & 4095;
+
+                pixels[row_idx + x] = palette[palette_idx];
             }
+        }
+    } else {
+        for (0..screen_height) |y| {
+            const v2 = v2_cache[y];
+            const row_idx = y * screen_width;
 
-            // Translate composite range perfectly to the 4096 12-bit palette
-            const val_ratio = (composite + 4.0) / 8.0;
-            const palette_idx = @as(usize, @intFromFloat(std.math.clamp(val_ratio * 4095.99, 0.0, 4095.0))) & 4095;
+            for (0..screen_width) |x| {
+                const v1 = v1_cache[x];
+                const v3 = v3_cache[x + y];
+                const v4 = v4_cache[x + screen_height - y];
 
-            pixels[row_idx + x] = palette[palette_idx];
+                // Compound wave construction
+                const composite = v1 + v2 + v3 + v4;
+
+                // Translate composite range perfectly to the 4096 12-bit palette
+                const val_ratio = (composite + 4.0) / 8.0;
+                const palette_idx = @as(usize, @intFromFloat(std.math.clamp(val_ratio * 4095.99, 0.0, 4095.0))) & 4095;
+
+                pixels[row_idx + x] = palette[palette_idx];
+            }
         }
     }
 }

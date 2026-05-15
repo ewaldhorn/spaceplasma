@@ -25,8 +25,8 @@ async function initApp() {
         const ctx = canvas.getContext("2d", { alpha: false });
         
         // Set the native resolution of the WASM engine buffer
-        const width = 800;
-        const height = 600;
+        const width = 400;
+        const height = 300;
 
         // Compile and instantiate the Zig WASM module
         log("Connecting WebAssembly runtime...");
