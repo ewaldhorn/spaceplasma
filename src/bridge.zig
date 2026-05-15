@@ -23,7 +23,7 @@ pub export fn get_buffer_ptr() [*]u8 {
     return &main.buffer;
 }
 
-/// Passes high-fidelity mouse and touch interaction state directly into the engine core.
-pub export fn set_mouse_state(mx: f32, my: f32, pressed: bool) void {
-    main.set_mouse_state(mx, my, pressed);
+/// Passes high-fidelity multi-touch interaction state into the engine core.
+pub export fn set_touch_state(index: usize, mx: f32, my: f32, pressed: bool, active: bool) void {
+    main.set_touch_state(index, mx, my, pressed, active);
 }

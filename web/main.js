@@ -105,48 +105,106 @@ async function initApp() {
         }
 
         // ---------------------------------------------------------------------
-        // Mouse & Touch Interaction Interface
-        // Scales viewport coordinates directly into engine's internal 800x600 space
+        // Stable Multi-Touch & Mouse Tracker
+        // Tracks up to 4 parallel inputs and assigns stable slots (0..3)
         // ---------------------------------------------------------------------
-        function pipeInteraction(e, pressed) {
+        const maxSlots = 4;
+        const interactionSlots = new Array(maxSlots).fill(null).map(() => ({
+            id: null, // unique id (e.g., 'mouse' or touch.identifier)
+            active: false
+        }));
+
+        function updateStateInWasm(slotIndex, x, y, pressed, active) {
+            instance.exports.set_touch_state(slotIndex, x, y, pressed, active);
+        }
+
+        function processInteraction(e) {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
             
-            let clientX, clientY;
-            if (e.touches && e.touches.length > 0) {
-                clientX = e.touches[0].clientX;
-                clientY = e.touches[0].clientY;
-            } else {
-                clientX = e.clientX;
-                clientY = e.clientY;
+            // 1. Construct array of target pointer states for THIS event
+            let inputs = [];
+            
+            if (e.touches) {
+                // Collect active touches up to 4
+                for (let i = 0; i < Math.min(e.touches.length, maxSlots); i++) {
+                    const touch = e.touches[i];
+                    inputs.push({
+                        id: touch.identifier,
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        pressed: true
+                    });
+                }
+            } else if (e.type !== "mouseleave") {
+                // Normalise mouse as a single interaction
+                inputs.push({
+                    id: "mouse",
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    pressed: e.buttons > 0
+                });
+            }
+
+            // 2. Reconcile input array against existing slots
+            
+            // Mark all current slots for deactivation/garbage collection if they left
+            const foundIds = new Set(inputs.map(inp => inp.id));
+            
+            for (let i = 0; i < maxSlots; i++) {
+                const slot = interactionSlots[i];
+                if (slot.active && !foundIds.has(slot.id)) {
+                    // This slot is no longer present. Park and disable it.
+                    slot.active = false;
+                    slot.id = null;
+                    updateStateInWasm(i, -2000, -2000, false, false);
+                }
             }
             
-            // Translate client coord space to local 800x600 matrix
-            const mx = ((clientX - rect.left) / rect.width) * width;
-            const my = ((clientY - rect.top) / rect.height) * height;
-            
-            instance.exports.set_mouse_state(mx, my, pressed);
+            // Assign active inputs to slots
+            for (const input of inputs) {
+                // A. Try to find an existing slot with this ID
+                let assignedSlotIndex = interactionSlots.findIndex(s => s.active && s.id === input.id);
+                
+                // B. If not found, claim the first empty/inactive slot
+                if (assignedSlotIndex === -1) {
+                    assignedSlotIndex = interactionSlots.findIndex(s => !s.active);
+                }
+                
+                // If all slots are full, we ignore this input
+                if (assignedSlotIndex !== -1) {
+                    const slot = interactionSlots[assignedSlotIndex];
+                    slot.active = true;
+                    slot.id = input.id;
+                    
+                    const mx = ((input.clientX - rect.left) / rect.width) * width;
+                    const my = ((input.clientY - rect.top) / rect.height) * height;
+                    
+                    updateStateInWasm(assignedSlotIndex, mx, my, input.pressed, true);
+                }
+            }
         }
 
-        function parkCursor() {
-            // Secure pointer coordinates far outside boundary to fade ripple
-            instance.exports.set_mouse_state(-2000, -2000, false);
+        function handleLeaveAll(e) {
+            e.preventDefault();
+            for (let i = 0; i < maxSlots; i++) {
+                interactionSlots[i].active = false;
+                interactionSlots[i].id = null;
+                updateStateInWasm(i, -2000, -2000, false, false);
+            }
         }
 
         // Mouse Listeners
-        canvas.addEventListener("mousemove", (e) => pipeInteraction(e, e.buttons > 0));
-        canvas.addEventListener("mousedown", (e) => pipeInteraction(e, true));
-        canvas.addEventListener("mouseup", (e) => pipeInteraction(e, false));
-        canvas.addEventListener("mouseleave", parkCursor);
+        canvas.addEventListener("mousemove", processInteraction);
+        canvas.addEventListener("mousedown", processInteraction);
+        canvas.addEventListener("mouseup", processInteraction);
+        canvas.addEventListener("mouseleave", processInteraction);
 
         // Touch Listeners (Mobile/Tablet support)
-        canvas.addEventListener("touchstart", (e) => pipeInteraction(e, true), { passive: false });
-        canvas.addEventListener("touchmove", (e) => pipeInteraction(e, true), { passive: false });
-        canvas.addEventListener("touchend", (e) => {
-            if (e.touches.length === 0) parkCursor();
-            else pipeInteraction(e, false);
-        }, { passive: false });
-        canvas.addEventListener("touchcancel", parkCursor);
+        canvas.addEventListener("touchstart", processInteraction, { passive: false });
+        canvas.addEventListener("touchmove", processInteraction, { passive: false });
+        canvas.addEventListener("touchend", processInteraction, { passive: false });
+        canvas.addEventListener("touchcancel", handleLeaveAll, { passive: false });
 
         // Kick off loop
         requestAnimationFrame(renderLoop);
