@@ -150,14 +150,18 @@ async function initApp() {
             
             // Mark all current slots for deactivation/garbage collection if they left
             const foundIds = new Set(inputs.map(inp => inp.id));
+            const isTouchEvent = !!e.touches;
             
             for (let i = 0; i < maxSlots; i++) {
                 const slot = interactionSlots[i];
                 if (slot.active && !foundIds.has(slot.id)) {
-                    // This slot is no longer present. Park and disable it.
-                    slot.active = false;
-                    slot.id = null;
-                    updateStateInWasm(i, -2000, -2000, false, false);
+                    const isSlotTouch = slot.id !== "mouse";
+                    // Only deactivate if this event type is responsible for this input family
+                    if ((isTouchEvent && isSlotTouch) || (!isTouchEvent && !isSlotTouch)) {
+                        slot.active = false;
+                        slot.id = null;
+                        updateStateInWasm(i, -2000, -2000, false, false);
+                    }
                 }
             }
             
