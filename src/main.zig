@@ -55,16 +55,15 @@ pub fn init() void {
     Engine.clear(Colour.black);
 }
 
-/// Precomputes the frame-specific color palette entries
+/// Precomputes the frame-specific colour palette entries
 fn updatePalette(t: f32) void {
-    var i: u32 = 0;
-    while (i < 4096) : (i += 1) {
+    for (0..4096) |i| {
         const ratio = @as(f32, @floatFromInt(i)) / 4095.0;
         const angle = ratio * std.math.pi * 2.0;
 
-        const r = @as(u8, @intFromFloat(std.math.clamp(128.0 + 127.0 * @sin(angle + t * 1.5), 0.0, 255.0)));
-        const g = @as(u8, @intFromFloat(std.math.clamp(128.0 + 127.0 * @sin(angle + 2.0 - t), 0.0, 255.0)));
-        const b = @as(u8, @intFromFloat(std.math.clamp(128.0 + 127.0 * @sin(angle + 4.0 + t * 0.5), 0.0, 255.0)));
+        const r: u8 = @intFromFloat(std.math.clamp(128.0 + 127.0 * @sin(angle + t * 1.5), 0.0, 255.0));
+        const g: u8 = @intFromFloat(std.math.clamp(128.0 + 127.0 * @sin(angle + 2.0 - t), 0.0, 255.0));
+        const b: u8 = @intFromFloat(std.math.clamp(128.0 + 127.0 * @sin(angle + 4.0 + t * 0.5), 0.0, 255.0));
 
         palette[i] = Colour.rgba(r, g, b, 255);
     }
@@ -90,32 +89,28 @@ pub fn update(real_t: f32) void {
     updatePalette(t);
 
     // 3. Projection Cache: Base Plasma Equations
-    
+
     // V1 Projection
-    var cx_idx: usize = 0;
-    while (cx_idx < screen_width) : (cx_idx += 1) {
+    for (0..screen_width) |cx_idx| {
         const cx = @as(f32, @floatFromInt(cx_idx));
         v1_cache[cx_idx] = @sin(cx / 45.0 + t * 1.2);
     }
 
     // V2 Projection
-    var cy_idx: usize = 0;
-    while (cy_idx < screen_height) : (cy_idx += 1) {
+    for (0..screen_height) |cy_idx| {
         const cy = @as(f32, @floatFromInt(cy_idx));
         v2_cache[cy_idx] = @sin((cy / 35.0 + t * 0.9) * 1.3);
     }
 
     // V3 Projection
-    var diag1_idx: usize = 0;
-    while (diag1_idx < (screen_width + screen_height)) : (diag1_idx += 1) {
+    for (0..(screen_width + screen_height)) |diag1_idx| {
         const ci = @as(f32, @floatFromInt(diag1_idx));
         v3_cache[diag1_idx] = @sin(ci / 50.0 + t * 1.5);
     }
 
     // V4 Projection
-    var diag2_idx: usize = 0;
     const height_f = @as(f32, @floatFromInt(screen_height));
-    while (diag2_idx < (screen_width + screen_height)) : (diag2_idx += 1) {
+    for (0..(screen_width + screen_height)) |diag2_idx| {
         const val = @as(f32, @floatFromInt(diag2_idx)) - height_f;
         v4_cache[diag2_idx] = @sin(val / 70.0 - t * 1.1);
     }
@@ -126,21 +121,19 @@ pub fn update(real_t: f32) void {
         const radius_sq: f32 = 180.0 * 180.0; // Standard Gaussian falloff radius
 
         // X dimension factors
-        var rx_idx: usize = 0;
-        while (rx_idx < screen_width) : (rx_idx += 1) {
+        for (0..screen_width) |rx_idx| {
             const cx = @as(f32, @floatFromInt(rx_idx));
             const dx = cx - mouse_x;
             const dx_sq = dx * dx;
             // Expand ripple outwards over time
-            const angle = dx_sq / ripple_scale - t * 9.0; 
+            const angle = dx_sq / ripple_scale - t * 9.0;
             mx_sin[rx_idx] = @sin(angle);
             mx_cos[rx_idx] = @cos(angle);
             mx_weight[rx_idx] = @exp(-dx_sq / radius_sq);
         }
 
         // Y dimension factors
-        var ry_idx: usize = 0;
-        while (ry_idx < screen_height) : (ry_idx += 1) {
+        for (0..screen_height) |ry_idx| {
             const cy = @as(f32, @floatFromInt(ry_idx));
             const dy = cy - mouse_y;
             const dy_sq = dy * dy;
@@ -155,19 +148,19 @@ pub fn update(real_t: f32) void {
     const strength = ripple_strength;
     const has_ripple = strength > 0.001;
 
-    var y: usize = 0;
-    while (y < screen_height) : (y += 1) {
+    const pixels: *[screen_width * screen_height]Colour = @ptrCast(&buffer);
+
+    for (0..screen_height) |y| {
         const v2 = v2_cache[y];
-        
+
         // Pre-fetch Y-ripple projections once per row
         const mys = if (has_ripple) my_sin[y] else 0.0;
         const myc = if (has_ripple) my_cos[y] else 0.0;
         const myw = if (has_ripple) my_weight[y] else 0.0;
 
-        const offset_row = y * screen_width * 4;
+        const row_idx = y * screen_width;
 
-        var x: usize = 0;
-        while (x < screen_width) : (x += 1) {
+        for (0..screen_width) |x| {
             const v1 = v1_cache[x];
             const v3 = v3_cache[x + y];
             const v4 = v4_cache[x + screen_height - y];
@@ -181,13 +174,13 @@ pub fn update(real_t: f32) void {
                 const mxs = mx_sin[x];
                 const mxc = mx_cos[x];
                 const mxw = mx_weight[x];
-                
+
                 // Reconstruct perfect mathematical sin(dx^2 + dy^2) via trigonometric identity
                 const concentric_wave = mxs * myc + mxc * mys;
-                
+
                 // Combine 1D Gaussian weights and apply dynamic strength scaler
                 const ripple_pixel = concentric_wave * mxw * myw * strength;
-                
+
                 // Inject into composite wave field
                 composite += ripple_pixel * 4.0; // 4.0 multiplier for vibrant impact
             }
@@ -196,13 +189,7 @@ pub fn update(real_t: f32) void {
             const val_ratio = (composite + 4.0) / 8.0;
             const palette_idx = @as(usize, @intFromFloat(std.math.clamp(val_ratio * 4095.99, 0.0, 4095.0))) & 4095;
 
-            const col = palette[palette_idx];
-
-            const offset = offset_row + x * 4;
-            buffer[offset + 0] = col.r;
-            buffer[offset + 1] = col.g;
-            buffer[offset + 2] = col.b;
-            buffer[offset + 3] = 255;
+            pixels[row_idx + x] = palette[palette_idx];
         }
     }
 }

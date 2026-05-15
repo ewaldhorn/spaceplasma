@@ -12,6 +12,8 @@ pub fn SoftwareRenderer(
         pub const screen_width = width;
         pub const screen_height = height;
 
+        const pixels: *[width * height]Colour = @ptrCast(buffer);
+
         // --------------------------------------------------------------------------------------------
         pub const shimmer_lut_size = 256;
         pub const shimmer_lut: [shimmer_lut_size]u8 = init: {
@@ -32,27 +34,25 @@ pub fn SoftwareRenderer(
 
         // --------------------------------------------------------------------------------------------
         /// Draws a single pixel to the buffer with bounds checking
-        pub fn putPixel(x: i32, y: i32, color: Colour) void {
+        pub fn putPixel(x: i32, y: i32, colour: Colour) void {
             if (x < 0 or x >= screen_width or y < 0 or y >= screen_height) return;
 
             const ux: usize = @intCast(x);
             const uy: usize = @intCast(y);
-            const offset = (uy * screen_width + ux) * 4;
+            const index = uy * screen_width + ux;
 
-            if (color.a == 255) {
-                buffer[offset + 0] = color.r;
-                buffer[offset + 1] = color.g;
-                buffer[offset + 2] = color.b;
-                buffer[offset + 3] = 255;
-            } else if (color.a > 0) {
+            if (colour.a == 255) {
+                pixels[index] = colour;
+            } else if (colour.a > 0) {
                 // Alpha blending: dst = (src * a + dst * (255 - a)) / 255
-                const a = @as(u32, color.a);
+                const a: u32 = colour.a;
                 const inv_a = 255 - a;
 
-                buffer[offset + 0] = @as(u8, @intCast((@as(u32, color.r) * a + @as(u32, buffer[offset + 0]) * inv_a) / 255));
-                buffer[offset + 1] = @as(u8, @intCast((@as(u32, color.g) * a + @as(u32, buffer[offset + 1]) * inv_a) / 255));
-                buffer[offset + 2] = @as(u8, @intCast((@as(u32, color.b) * a + @as(u32, buffer[offset + 2]) * inv_a) / 255));
-                buffer[offset + 3] = 255; // Keep target buffer fully opaque
+                const dst = &pixels[index];
+                dst.r = @intCast((@as(u32, colour.r) * a + @as(u32, dst.r) * inv_a) / 255);
+                dst.g = @intCast((@as(u32, colour.g) * a + @as(u32, dst.g) * inv_a) / 255);
+                dst.b = @intCast((@as(u32, colour.b) * a + @as(u32, dst.b) * inv_a) / 255);
+                dst.a = 255; // Keep target buffer fully opaque
             }
         }
 
@@ -112,20 +112,20 @@ pub fn SoftwareRenderer(
 
         // --------------------------------------------------------------------------------------------
         /// Draws the outline of a circle using the Midpoint Circle Algorithm
-        pub fn drawCircle(centerX: i32, centerY: i32, radius: i32, colour: Colour) void {
+        pub fn drawCircle(center_x: i32, center_y: i32, radius: i32, colour: Colour) void {
             var x: i32 = radius;
             var y: i32 = 0;
             var err: i32 = 0;
 
             while (x >= y) {
-                putPixel(centerX + x, centerY + y, colour);
-                putPixel(centerX + y, centerY + x, colour);
-                putPixel(centerX - y, centerY + x, colour);
-                putPixel(centerX - x, centerY + y, colour);
-                putPixel(centerX - x, centerY - y, colour);
-                putPixel(centerX - y, centerY - x, colour);
-                putPixel(centerX + y, centerY - x, colour);
-                putPixel(centerX + x, centerY - y, colour);
+                putPixel(center_x + x, center_y + y, colour);
+                putPixel(center_x + y, center_y + x, colour);
+                putPixel(center_x - y, center_y + x, colour);
+                putPixel(center_x - x, center_y + y, colour);
+                putPixel(center_x - x, center_y - y, colour);
+                putPixel(center_x - y, center_y - x, colour);
+                putPixel(center_x + y, center_y - x, colour);
+                putPixel(center_x + x, center_y - y, colour);
 
                 if (err <= 0) {
                     y += 1;
@@ -140,21 +140,21 @@ pub fn SoftwareRenderer(
 
         // --------------------------------------------------------------------------------------------
         /// Draws a dashed circle outline using the Midpoint Circle Algorithm
-        pub fn drawDashedCircle(centerX: i32, centerY: i32, radius: i32, colour: Colour) void {
+        pub fn drawDashedCircle(center_x: i32, center_y: i32, radius: i32, colour: Colour) void {
             var x: i32 = radius;
             var y: i32 = 0;
             var err: i32 = 0;
 
             while (x >= y) {
                 if (@mod(y, 12) < 6) {
-                    putPixel(centerX + x, centerY + y, colour);
-                    putPixel(centerX + y, centerY + x, colour);
-                    putPixel(centerX - y, centerY + x, colour);
-                    putPixel(centerX - x, centerY + y, colour);
-                    putPixel(centerX - x, centerY - y, colour);
-                    putPixel(centerX - y, centerY - x, colour);
-                    putPixel(centerX + y, centerY - x, colour);
-                    putPixel(centerX + x, centerY - y, colour);
+                    putPixel(center_x + x, center_y + y, colour);
+                    putPixel(center_x + y, center_y + x, colour);
+                    putPixel(center_x - y, center_y + x, colour);
+                    putPixel(center_x - x, center_y + y, colour);
+                    putPixel(center_x - x, center_y - y, colour);
+                    putPixel(center_x - y, center_y - x, colour);
+                    putPixel(center_x + y, center_y - x, colour);
+                    putPixel(center_x + x, center_y - y, colour);
                 }
 
                 if (err <= 0) {
@@ -170,21 +170,21 @@ pub fn SoftwareRenderer(
 
         // --------------------------------------------------------------------------------------------
         /// Draws a shimmer circle for utility shields with performance-optimised LUT lookup
-        pub fn drawShimmerCircle(centerX: i32, centerY: i32, radius: i32, colour: Colour, offset: usize) void {
+        pub fn drawShimmerCircle(center_x: i32, center_y: i32, radius: i32, colour: Colour, offset: usize) void {
             var x: i32 = radius;
             var y: i32 = 0;
             var err: i32 = 0;
             var count: usize = offset;
 
             while (x >= y) {
-                shimmerPutPixel(centerX + x, centerY + y, colour, &count);
-                shimmerPutPixel(centerX + y, centerY + x, colour, &count);
-                shimmerPutPixel(centerX - y, centerY + x, colour, &count);
-                shimmerPutPixel(centerX - x, centerY + y, colour, &count);
-                shimmerPutPixel(centerX - x, centerY - y, colour, &count);
-                shimmerPutPixel(centerX - y, centerY - x, colour, &count);
-                shimmerPutPixel(centerX + y, centerY - x, colour, &count);
-                shimmerPutPixel(centerX + x, centerY - y, colour, &count);
+                shimmerPutPixel(center_x + x, center_y + y, colour, &count);
+                shimmerPutPixel(center_x + y, center_y + x, colour, &count);
+                shimmerPutPixel(center_x - y, center_y + x, colour, &count);
+                shimmerPutPixel(center_x - x, center_y + y, colour, &count);
+                shimmerPutPixel(center_x - x, center_y - y, colour, &count);
+                shimmerPutPixel(center_x - y, center_y - x, colour, &count);
+                shimmerPutPixel(center_x + y, center_y - x, colour, &count);
+                shimmerPutPixel(center_x + x, center_y - y, colour, &count);
 
                 if (err <= 0) {
                     y += 1;
@@ -228,7 +228,7 @@ pub fn SoftwareRenderer(
 
         // --------------------------------------------------------------------------------------------
         /// Draws a filled circle
-        pub fn fillCircle(centerX: i32, centerY: i32, radius: i32, colour: Colour) void {
+        pub fn fillCircle(center_x: i32, center_y: i32, radius: i32, colour: Colour) void {
             var x: i32 = radius;
             var y: i32 = 0;
             var err: i32 = 0;
@@ -236,18 +236,18 @@ pub fn SoftwareRenderer(
             while (x >= y) {
                 // Draw horizontal lines to fill the circle
                 inline for ([_]i32{ -1, 1 }) |sign_y| {
-                    const row_y1 = centerY + sign_y * y;
-                    const row_y2 = centerY + sign_y * x;
+                    const row_y1 = center_y + sign_y * y;
+                    const row_y2 = center_y + sign_y * x;
 
                     // Lines for y
-                    var ix: i32 = centerX - x;
-                    while (ix <= centerX + x) : (ix += 1) {
+                    var ix: i32 = center_x - x;
+                    while (ix <= center_x + x) : (ix += 1) {
                         putPixel(ix, row_y1, colour);
                     }
 
                     // Lines for x
-                    ix = centerX - y;
-                    while (ix <= centerX + y) : (ix += 1) {
+                    ix = center_x - y;
+                    while (ix <= center_x + y) : (ix += 1) {
                         putPixel(ix, row_y2, colour);
                     }
                 }
@@ -264,15 +264,9 @@ pub fn SoftwareRenderer(
         }
 
         // --------------------------------------------------------------------------------------------
-        /// Clears the screen with a specific color
-        pub fn clear(color: Colour) void {
-            for (0..screen_width * screen_height) |i| {
-                const offset = i * 4;
-                buffer[offset + 0] = color.r;
-                buffer[offset + 1] = color.g;
-                buffer[offset + 2] = color.b;
-                buffer[offset + 3] = color.a;
-            }
+        /// Clears the screen with a specific colour
+        pub fn clear(colour: Colour) void {
+            @memset(pixels, colour);
         }
     };
 }

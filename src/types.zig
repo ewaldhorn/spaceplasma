@@ -2,7 +2,7 @@
 // Standard definitions for software rendering operations
 // ------------------------------------------------------------------------------------------------
 
-pub const Colour = struct {
+pub const Colour = extern struct {
     r: u8,
     g: u8,
     b: u8,
