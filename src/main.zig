@@ -69,9 +69,9 @@ fn updatePalette(t: f32) void {
         const ratio = @as(f32, @floatFromInt(i)) / 4095.0;
         const angle = ratio * std.math.pi * 2.0;
 
-        const r: u8 = @intFromFloat(std.math.clamp(128.0 + 127.0 * @sin(angle + t * 1.5), 0.0, 255.0));
-        const g: u8 = @intFromFloat(std.math.clamp(128.0 + 127.0 * @sin(angle + 2.0 - t), 0.0, 255.0));
-        const b: u8 = @intFromFloat(std.math.clamp(128.0 + 127.0 * @sin(angle + 4.0 + t * 0.5), 0.0, 255.0));
+        const r: u8 = @intFromFloat(128.0 + 127.0 * @sin(angle + t * 1.5));
+        const g: u8 = @intFromFloat(128.0 + 127.0 * @sin(angle + 2.0 - t));
+        const b: u8 = @intFromFloat(128.0 + 127.0 * @sin(angle + 4.0 + t * 0.5));
 
         palette[i] = Colour.rgba(r, g, b, 255);
     }
@@ -178,17 +178,17 @@ pub fn update(real_t: f32) void {
     if (has_ripple) {
         for (0..screen_height) |y| {
             const v2 = v2_cache[y];
+            const y_inv = screen_height - y;
 
-            // Pre-fetch Y-ripple projections once per row for all active points
+            // Pre-fetch Y-ripple projections once per row for all points
             var mys: [4]f32 = undefined;
             var myc: [4]f32 = undefined;
-            var myw: [4]f32 = undefined;
+            var myw_str: [4]f32 = undefined; // my_weight * strength
             inline for (0..4) |i| {
-                if (touch_points[i].ripple_strength > 0.001) {
-                    mys[i] = my_sin[i][y];
-                    myc[i] = my_cos[i][y];
-                    myw[i] = my_weight[i][y];
-                }
+                const strength = touch_points[i].ripple_strength;
+                mys[i] = my_sin[i][y];
+                myc[i] = my_cos[i][y];
+                myw_str[i] = if (strength > 0.001) my_weight[i][y] * strength else 0.0;
             }
 
             const row_idx = y * screen_width;
@@ -196,7 +196,7 @@ pub fn update(real_t: f32) void {
             for (0..screen_width) |x| {
                 const v1 = v1_cache[x];
                 const v3 = v3_cache[x + y];
-                const v4 = v4_cache[x + screen_height - y];
+                const v4 = v4_cache[x + y_inv];
 
                 // Compound wave construction
                 var composite = v1 + v2 + v3 + v4;
@@ -204,26 +204,23 @@ pub fn update(real_t: f32) void {
                 // Dynamic Interactive Ripple Injection
                 var ripple_pixel: f32 = 0.0;
                 inline for (0..4) |i| {
-                    const strength = touch_points[i].ripple_strength;
-                    if (strength > 0.001) {
-                        const mxs = mx_sin[i][x];
-                        const mxc = mx_cos[i][x];
-                        const mxw = mx_weight[i][x];
+                    const mxs = mx_sin[i][x];
+                    const mxc = mx_cos[i][x];
+                    const mxw = mx_weight[i][x];
 
-                        // Reconstruct perfect mathematical sin(dx^2 + dy^2) via trigonometric identity
-                        const concentric_wave = mxs * myc[i] + mxc * mys[i];
+                    // Reconstruct perfect mathematical sin(dx^2 + dy^2) via trigonometric identity
+                    const concentric_wave = mxs * myc[i] + mxc * mys[i];
 
-                        // Combine 1D Gaussian weights and apply dynamic strength scaler
-                        ripple_pixel += concentric_wave * mxw * myw[i] * strength;
-                    }
+                    // Combine 1D Gaussian weights and apply dynamic strength scaler
+                    ripple_pixel += concentric_wave * mxw * myw_str[i];
                 }
 
                 // Inject into composite wave field
                 composite += ripple_pixel * 4.0; // 4.0 multiplier for vibrant impact
 
                 // Translate composite range perfectly to the 4096 12-bit palette
-                const val_ratio = (composite + 4.0) / 8.0;
-                const palette_idx = @as(usize, @intFromFloat(std.math.clamp(val_ratio * 4095.99, 0.0, 4095.0))) & 4095;
+                const val_scaled = (composite + 4.0) * 512.0;
+                const palette_idx = @as(usize, @intFromFloat(std.math.clamp(val_scaled, 0.0, 4095.0)));
 
                 pixels[row_idx + x] = palette[palette_idx];
             }
@@ -231,19 +228,20 @@ pub fn update(real_t: f32) void {
     } else {
         for (0..screen_height) |y| {
             const v2 = v2_cache[y];
+            const y_inv = screen_height - y;
             const row_idx = y * screen_width;
 
             for (0..screen_width) |x| {
                 const v1 = v1_cache[x];
                 const v3 = v3_cache[x + y];
-                const v4 = v4_cache[x + screen_height - y];
+                const v4 = v4_cache[x + y_inv];
 
                 // Compound wave construction
                 const composite = v1 + v2 + v3 + v4;
 
                 // Translate composite range perfectly to the 4096 12-bit palette
-                const val_ratio = (composite + 4.0) / 8.0;
-                const palette_idx = @as(usize, @intFromFloat(std.math.clamp(val_ratio * 4095.99, 0.0, 4095.0))) & 4095;
+                const val_scaled = (composite + 4.0) * 512.0;
+                const palette_idx = @as(usize, @intFromFloat(std.math.clamp(val_scaled, 0.0, 4095.0)));
 
                 pixels[row_idx + x] = palette[palette_idx];
             }
