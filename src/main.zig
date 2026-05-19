@@ -23,16 +23,16 @@ var v2_cache: [screen_height]f32 = undefined;
 var v3_cache: [screen_width + screen_height]f32 = undefined;
 var v4_cache: [screen_width + screen_height]f32 = undefined;
 
-// Interactive Cursor Wave Projection Caches for up to 4 concurrent touch points.
+// Interactive Cursor Wave Projection Caches for up to 10 concurrent touch points.
 // Trigonometric decomposition allows computing perfect 2D circular Gaussian ripples
 // without EVER executing @sqrt() or @exp() in the inner pixel loop!
-var mx_sin: [4][screen_width]f32 = undefined;
-var mx_cos: [4][screen_width]f32 = undefined;
-var mx_weight: [4][screen_width]f32 = undefined;
+var mx_sin: [10][screen_width]f32 = undefined;
+var mx_cos: [10][screen_width]f32 = undefined;
+var mx_weight: [10][screen_width]f32 = undefined;
 
-var my_sin: [4][screen_height]f32 = undefined;
-var my_cos: [4][screen_height]f32 = undefined;
-var my_weight: [4][screen_height]f32 = undefined;
+var my_sin: [10][screen_height]f32 = undefined;
+var my_cos: [10][screen_height]f32 = undefined;
+var my_weight: [10][screen_height]f32 = undefined;
 
 // Touch point definitions
 pub const TouchPoint = struct {
@@ -43,15 +43,15 @@ pub const TouchPoint = struct {
     ripple_strength: f32 = 0.0,
 };
 
-// State management for live interactive coordinates (4 parallel channels)
-pub var touch_points = [_]TouchPoint{.{}} ** 4;
+// State management for live interactive coordinates (10 parallel channels)
+pub var touch_points = [_]TouchPoint{.{}} ** 10;
 
 // Rigid frame clock
 pub var internal_clock: f32 = 0.0;
 
 /// Receives real-time scaled interactive coordinates from Javascript driver for specific touch channel
 pub fn set_touch_state(index: usize, mx: f32, my: f32, pressed: bool, active: bool) void {
-    if (index >= 4) return;
+    if (index >= 10) return;
     touch_points[index].x = mx;
     touch_points[index].y = my;
     touch_points[index].pressed = pressed;
@@ -89,7 +89,7 @@ pub fn update(real_t: f32) void {
     const scale_factor: f32 = 2.0;
 
     // 1. Smoothly lerp the active interaction strength for each touch channel (glow in/out dynamics)
-    inline for (0..4) |i| {
+    inline for (0..10) |i| {
         const point = &touch_points[i];
         var target_strength: f32 = 0.0;
         if (point.active and point.x >= 0.0 and point.x <= @as(f32, @floatFromInt(screen_width))) {
@@ -132,7 +132,7 @@ pub fn update(real_t: f32) void {
     const ripple_scale: f32 = 1200.0; // Space multiplier for ring frequency
     const radius_sq: f32 = 180.0 * 180.0; // Standard Gaussian falloff radius
 
-    inline for (0..4) |i| {
+    inline for (0..10) |i| {
         const point = &touch_points[i];
         if (point.ripple_strength > 0.001) {
             const scaled_mouse_x = point.x * scale_factor;
@@ -165,7 +165,7 @@ pub fn update(real_t: f32) void {
 
     // 5. Unified Rendering Loop
     var has_ripple = false;
-    inline for (0..4) |i| {
+    inline for (0..10) |i| {
         if (touch_points[i].ripple_strength > 0.001) {
             has_ripple = true;
         }
@@ -180,15 +180,16 @@ pub fn update(real_t: f32) void {
             const v2 = v2_cache[y];
             const y_inv = screen_height - y;
 
-            // Pre-fetch Y-ripple projections once per row for all points
-            var mys: [4]f32 = undefined;
-            var myc: [4]f32 = undefined;
-            var myw_str: [4]f32 = undefined; // my_weight * strength
-            inline for (0..4) |i| {
-                const strength = touch_points[i].ripple_strength;
-                mys[i] = my_sin[i][y];
-                myc[i] = my_cos[i][y];
-                myw_str[i] = if (strength > 0.001) my_weight[i][y] * strength else 0.0;
+            // Pre-fetch Y-ripple projections once per row for all active points
+            var mys: [10]f32 = undefined;
+            var myc: [10]f32 = undefined;
+            var myw: [10]f32 = undefined;
+            inline for (0..10) |i| {
+                if (touch_points[i].ripple_strength > 0.001) {
+                    mys[i] = my_sin[i][y];
+                    myc[i] = my_cos[i][y];
+                    myw[i] = my_weight[i][y];
+                }
             }
 
             const row_idx = y * screen_width;
@@ -203,16 +204,19 @@ pub fn update(real_t: f32) void {
 
                 // Dynamic Interactive Ripple Injection
                 var ripple_pixel: f32 = 0.0;
-                inline for (0..4) |i| {
-                    const mxs = mx_sin[i][x];
-                    const mxc = mx_cos[i][x];
-                    const mxw = mx_weight[i][x];
+                inline for (0..10) |i| {
+                    const strength = touch_points[i].ripple_strength;
+                    if (strength > 0.001) {
+                        const mxs = mx_sin[i][x];
+                        const mxc = mx_cos[i][x];
+                        const mxw = mx_weight[i][x];
 
-                    // Reconstruct perfect mathematical sin(dx^2 + dy^2) via trigonometric identity
-                    const concentric_wave = mxs * myc[i] + mxc * mys[i];
+                        // Reconstruct perfect mathematical sin(dx^2 + dy^2) via trigonometric identity
+                        const concentric_wave = mxs * myc[i] + mxc * mys[i];
 
-                    // Combine 1D Gaussian weights and apply dynamic strength scaler
-                    ripple_pixel += concentric_wave * mxw * myw_str[i];
+                        // Combine 1D Gaussian weights and apply dynamic strength scaler
+                        ripple_pixel += concentric_wave * mxw * myw[i] * strength;
+                    }
                 }
 
                 // Inject into composite wave field
