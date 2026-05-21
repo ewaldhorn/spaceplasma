@@ -1,32 +1,182 @@
 /**
  * Cybernetic Plasma Visualizer
- * Wasm Interface Loader & Animation Loop
+ * WebGL Render Engine & WASM Simulation Bridge
  */
-
-const consoleOutput = document.getElementById("console-output");
-const loadingOverlay = document.getElementById("loading-overlay");
-const fpsCounter = document.getElementById("fps-counter");
-const statusText = document.getElementById("status-text");
 
 function log(msg, type = "info") {
   const prefix = type === "error" ? "[ERR]" : ">";
-  const line = document.createElement("p");
-  line.className = `log-line ${type === "error" ? "text-pink" : ""}`;
-  line.innerText = `${prefix} ${msg}`;
-  consoleOutput.appendChild(line);
-  consoleOutput.scrollTop = consoleOutput.scrollHeight;
+  console.log(`${prefix} ${msg}`); // Always mirror to the developer console!
+  
+  const consoleOutput = document.getElementById("console-output");
+  if (consoleOutput) {
+    const line = document.createElement("p");
+    line.className = `log-line ${type === "error" ? "text-pink" : ""}`;
+    line.innerText = `${prefix} ${msg}`;
+    consoleOutput.appendChild(line);
+    consoleOutput.scrollTop = consoleOutput.scrollHeight;
+  }
+}
+
+// Vertex shader program: simple full-screen quad mapping
+const vsSource = `
+  attribute vec2 a_position;
+  void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+  }
+`;
+
+// Fragment shader program: optimized high-fidelity plasma equations & compound Gaussian ripples
+const fsSource = `
+  #ifdef GL_ES
+  precision mediump float;
+  #endif
+
+  uniform float u_time;
+  uniform vec2 u_resolution;
+  uniform vec3 u_touches[10];
+  uniform float u_has_ripples;
+
+  void main() {
+    float x = gl_FragCoord.x;
+    float y = u_resolution.y - gl_FragCoord.y; // Map WebGL bottom-up coords to top-down space
+
+    float scale_factor = 1.0;
+    float cx = x * scale_factor;
+    float cy = y * scale_factor;
+
+    // 1. Base Plasma Equations (using fast, hardware-optimized multiplications)
+    float v1 = sin(cx * 0.02222222 + u_time * 1.2);
+    float v2 = sin((cy * 0.02857143 + u_time * 0.9) * 1.3);
+    float v3 = sin((cx + cy) * 0.02 + u_time * 1.5);
+    float v4 = sin((cx + (u_resolution.y - cy)) * 0.01428571 - u_time * 1.1);
+
+    float composite = v1 + v2 + v3 + v4;
+
+    // 2. Interactive Gaussian Concentric Ripples (completely branchless to prevent GPU warp divergence)
+    float ripple_pixel = 0.0;
+
+    if (u_has_ripples > 0.5) {
+      for (int i = 0; i < 10; i++) {
+        float strength = u_touches[i].z;
+        float tx = u_touches[i].x;
+        float ty = u_touches[i].y;
+        
+        float dx = cx - tx;
+        float dy = cy - ty;
+        float dist_sq = dx * dx + dy * dy;
+
+        float angle = dist_sq * 0.0008333333 - u_time * 9.0;
+        float concentric_wave = sin(angle);
+        float weight = 1.0 / (1.0 + dist_sq * 0.00003086419); // Fast rational decay approximation
+
+        ripple_pixel += concentric_wave * weight * strength;
+      }
+    }
+
+    composite += ripple_pixel * 4.0; // 4.0 multiplier for vibrant wave impact
+
+    // 3. Dynamic High-Fidelity Color Palette Mapping (using hardware-accelerated float ratios)
+    float ratio = clamp((composite + 4.0) * 0.125, 0.0, 1.0);
+    float angle = ratio * 6.283185307179586; // 2.0 * pi
+
+    float r = 0.50196078 + 0.49803921 * sin(angle + u_time * 1.5);
+    float g = 0.50196078 + 0.49803921 * sin(angle + 2.0 - u_time);
+    float b = 0.50196078 + 0.49803921 * sin(angle + 4.0 + u_time * 0.5);
+
+    gl_FragColor = vec4(r, g, b, 1.0);
+  }
+`;
+
+function createShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const info = gl.getShaderInfoLog(shader);
+    gl.deleteShader(shader);
+    throw new Error(`Shader compilation failed: ${info}`);
+  }
+  return shader;
+}
+
+function initShaderProgram(gl, vsSource, fsSource) {
+  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vsSource);
+  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+  const shaderProgram = gl.createProgram();
+  gl.attachShader(shaderProgram, vertexShader);
+  gl.attachShader(shaderProgram, fragmentShader);
+  gl.linkProgram(shaderProgram);
+
+  if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+    throw new Error(`Shader linking failed: ${gl.getProgramInfoLog(shaderProgram)}`);
+  }
+  return shaderProgram;
 }
 
 async function initApp() {
+  const loadingOverlay = document.getElementById("loading-overlay");
+  const fpsCounter = document.getElementById("fps-counter");
+  const statusText = document.getElementById("status-text");
+
   log("Fetching plasma.wasm bytes...");
 
   try {
     const canvas = document.getElementById("plasma-canvas");
-    const ctx = canvas.getContext("2d", { alpha: false });
+    
+    // Set the native resolution
+    const width = 800;
+    const height = 600;
 
-    // Set the native resolution of the WASM engine buffer
-    const width = 400;
-    const height = 300;
+    log("Initializing WebGL graphics hardware pipeline...");
+    const gl = canvas.getContext("webgl", {
+      alpha: false,
+      depth: false,
+      antialias: false,
+      stencil: false,
+      preserveDrawingBuffer: false
+    });
+
+    if (!gl) {
+      throw new Error("WebGL context creation failed. Your browser/hardware may not support WebGL.");
+    }
+
+    // Diagnostic: Query and output active GPU hardware details to developer console
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    if (debugInfo) {
+      const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+      const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+      log(`GPU Hardware Connected: ${renderer} (${vendor})`);
+    } else {
+      log("GPU Diagnostic Info: Not available");
+    }
+
+    log("Compiling visualizer GLSL vertex and fragment shaders...");
+    const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+    gl.useProgram(shaderProgram);
+
+    // Setup uniform locations
+    const uTimeLoc = gl.getUniformLocation(shaderProgram, "u_time");
+    const uResolutionLoc = gl.getUniformLocation(shaderProgram, "u_resolution");
+    const uTouchesLoc = gl.getUniformLocation(shaderProgram, "u_touches");
+    const uHasRipplesLoc = gl.getUniformLocation(shaderProgram, "u_has_ripples");
+
+    // Setup geometry: simple full-screen quad (two triangles)
+    const positionAttributeLocation = gl.getAttribLocation(shaderProgram, "a_position");
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    const vertices = new Float32Array([
+      -1.0, -1.0,
+       1.0, -1.0,
+      -1.0,  1.0,
+      -1.0,  1.0,
+       1.0, -1.0,
+       1.0,  1.0,
+    ]);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    gl.enableVertexAttribArray(positionAttributeLocation);
+    gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
 
     // Compile and instantiate the Zig WASM module
     log("Connecting WebAssembly runtime...");
@@ -37,9 +187,9 @@ async function initApp() {
       );
     }
 
-    const buffer = await response.arrayBuffer();
+    const bufferBytes = await response.arrayBuffer();
     log("Compiling freestanding binary...");
-    const module = await WebAssembly.compile(buffer);
+    const module = await WebAssembly.compile(bufferBytes);
 
     log("Instantiating memory segment...");
     const instance = await WebAssembly.instantiate(module, {
@@ -48,29 +198,30 @@ async function initApp() {
 
     log("Wasm binary successfully linked.");
 
-    // Initialize state
+    // Initialize simulation state
     instance.exports.init();
-    log("Core graphics subsystem ONLINE.");
+    log("Core physics simulation subsystem ONLINE.");
 
-    // Setup direct memory bridge for frame drawing
+    // Expose memory views for clock and multi-touch data
     const memory = instance.exports.memory;
-    const bufferPtr = instance.exports.get_buffer_ptr();
+    const touchDataPtr = instance.exports.get_touch_data_ptr();
 
-    log(`Buffer base address resolved: 0x${bufferPtr.toString(16)}`);
+    log(`State telemetry base address resolved: 0x${touchDataPtr.toString(16)}`);
 
-    // Create a direct, shared view into WebAssembly memory space
-    const pixelData = new Uint8ClampedArray(
+    // Create a direct, shared array view into WASM memory space for the 10 touch points
+    const touchDataView = new Float32Array(
       memory.buffer,
-      bufferPtr,
-      width * height * 4,
+      touchDataPtr,
+      10 * 3 // 10 touch points * 3 components [x, y, strength]
     );
 
-    // Image data container for canvas blitting
-    const imageData = new ImageData(pixelData, width, height);
-
-    // Hide loading state
-    loadingOverlay.classList.add("hidden");
-    statusText.innerText = "KERNEL: RENDERING";
+    // Hide loading overlay
+    if (loadingOverlay) {
+      loadingOverlay.classList.add("hidden");
+    }
+    if (statusText) {
+      statusText.innerText = "KERNEL: WEBGL ACTIVE";
+    }
     log("Visualizer synchronization achieved. Loop start.");
 
     // Tracking performance stats
@@ -93,14 +244,33 @@ async function initApp() {
         fpsTimer = 0;
       }
 
-      // 1. Command Zig to process the next mathematical frame.
-      // Note: The WASM module utilizes its own rigid internal clock for physics.
+      // 1. Command Zig to process the next mathematical frame simulation.
       instance.exports.update(currentTime);
 
-      // 2. Direct Blit: Push the shared WASM pixel buffer directly to the primary canvas!
-      // No offscreen canvases, no drawImage overhead, completely stall-free!
-      // The browser GPU scales this 400x300 natively using CSS pixelated rules.
-      ctx.putImageData(imageData, 0, 0);
+      // 2. Fetch the rigid internal clock simulation time from Zig.
+      const internalTime = instance.exports.get_internal_clock();
+
+      // 3. WebGL Draw Cycle
+      gl.viewport(0, 0, width, height);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      // Set shader uniforms
+      gl.uniform1f(uTimeLoc, internalTime);
+      gl.uniform2f(uResolutionLoc, width, height);
+      gl.uniform3fv(uTouchesLoc, touchDataView);
+
+      // Fast check if any touch ripples are active to bypass pixel loops
+      let hasRipples = 0.0;
+      for (let i = 0; i < 10; i++) {
+        if (touchDataView[i * 3 + 2] > 0.001) {
+          hasRipples = 1.0;
+          break;
+        }
+      }
+      gl.uniform1f(uHasRipplesLoc, hasRipples);
+
+      // Draw the full-screen quad
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
 
       // Repeat
       requestAnimationFrame(renderLoop);
@@ -225,15 +395,24 @@ async function initApp() {
     requestAnimationFrame(renderLoop);
   } catch (err) {
     log(`CRITICAL BOOT ERROR: ${err.message}`, "error");
-    statusText.innerText = "KERNEL PANIC";
-    statusText.style.color = "#f857a6";
-    document.querySelector(".status-indicator").style.backgroundColor =
-      "#f857a6";
-    document.querySelector(".status-indicator").style.boxShadow =
-      "0 0 10px #f857a6";
     console.error(err);
+    
+    const localStatusText = document.getElementById("status-text");
+    if (localStatusText) {
+      localStatusText.innerText = "KERNEL PANIC";
+      localStatusText.style.color = "#f857a6";
+    }
+    const indicator = document.querySelector(".status-indicator");
+    if (indicator) {
+      indicator.style.backgroundColor = "#f857a6";
+      indicator.style.boxShadow = "0 0 10px #f857a6";
+    }
   }
 }
 
-// Initialize once DOM is ready
-window.addEventListener("DOMContentLoaded", initApp);
+// Reliable entrypoint that checks state to prevent race conditions with DOMContentLoaded
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", initApp);
+} else {
+  initApp();
+}
