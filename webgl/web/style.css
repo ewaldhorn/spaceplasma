@@ -118,20 +118,34 @@ body {
 }
 
 .status-indicator {
+    position: relative;
     width: 10px;
     height: 10px;
     background-color: #00ff66;
     border-radius: 50%;
-    box-shadow: 0 0 10px #00ff66;
 }
 
-.status-indicator.pulse {
+.status-indicator::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: inherit;
+    border-radius: inherit;
+    box-shadow: 0 0 10px #00ff66;
+    z-index: -1;
+}
+
+.status-indicator.pulse::after {
     animation: pulseGlow 2s infinite ease-in-out;
+    will-change: transform, opacity;
 }
 
 @keyframes pulseGlow {
-    0%, 100% { opacity: 0.6; box-shadow: 0 0 5px #00ff66; }
-    50% { opacity: 1; box-shadow: 0 0 15px #00ff66; }
+    0%, 100% { transform: scale(1.0); opacity: 0.4; }
+    50% { transform: scale(1.8); opacity: 0.9; }
 }
 
 /* Visualizer Container (Grid layout) */
@@ -217,6 +231,7 @@ body {
     border-top-color: var(--accent-cyan);
     border-radius: 50%;
     animation: spin 1s linear infinite;
+    will-change: transform;
     margin-bottom: 1.5rem;
 }
 

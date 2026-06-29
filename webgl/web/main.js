@@ -167,6 +167,9 @@ async function initApp() {
     const uTouchesLoc = gl.getUniformLocation(shaderProgram, "u_touches");
     const uHasRipplesLoc = gl.getUniformLocation(shaderProgram, "u_has_ripples");
 
+    // u_resolution is static, set it once here to prevent redundant per-frame updates
+    gl.uniform2f(uResolutionLoc, width, height);
+
     // Setup geometry: simple full-screen quad (two triangles)
     const positionAttributeLocation = gl.getAttribLocation(shaderProgram, "a_position");
     const positionBuffer = gl.createBuffer();
@@ -271,7 +274,6 @@ async function initApp() {
 
       // Set shader uniforms
       gl.uniform1f(uTimeLoc, internalTime);
-      gl.uniform2f(uResolutionLoc, width, height);
       gl.uniform3fv(uTouchesLoc, touchDataView);
 
       // Fast check if any touch ripples are active to bypass pixel loops
