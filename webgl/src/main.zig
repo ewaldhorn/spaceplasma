@@ -3,6 +3,7 @@ const std = @import("std");
 // Native simulation grid dimensions
 pub const screen_width = 800;
 pub const screen_height = 600;
+pub const screen_width_f = @as(f32, @floatFromInt(screen_width));
 
 // Touch point definition
 pub const TouchPoint = struct {
@@ -52,7 +53,7 @@ pub fn update(real_t: f32) void {
     inline for (0..10) |i| {
         const point = &touch_points[i];
         var target_strength: f32 = 0.0;
-        if (point.active and point.x >= 0.0 and point.x <= @as(f32, @floatFromInt(screen_width))) {
+        if (point.active and point.x >= 0.0 and point.x <= screen_width_f) {
             target_strength = if (point.pressed) 1.4 else 0.5;
         }
         point.ripple_strength += (target_strength - point.ripple_strength) * 0.1;

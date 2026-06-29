@@ -37,33 +37,30 @@ const fsSource = `
   uniform float u_has_ripples;
 
   void main() {
-    float x = gl_FragCoord.x;
-    float y = u_resolution.y - gl_FragCoord.y; // Map WebGL bottom-up coords to top-down space
+    float cx = gl_FragCoord.x;
+    float cy = u_resolution.y - gl_FragCoord.y; // Map WebGL bottom-up coords to top-down space
 
-    float scale_factor = 1.0;
-    float cx = x * scale_factor;
-    float cy = y * scale_factor;
-
-    // 1. Base Plasma Equations (using fast, hardware-optimized multiplications)
-    float v1 = sin(cx * 0.02222222 + u_time * 1.2);
-    float v2 = sin((cy * 0.02857143 + u_time * 0.9) * 1.3);
-    float v3 = sin((cx + cy) * 0.02 + u_time * 1.5);
-    float v4 = sin((cx + (u_resolution.y - cy)) * 0.01428571 - u_time * 1.1);
-
-    float composite = v1 + v2 + v3 + v4;
+    // 1. Base Plasma Equations (using fast, hardware-optimized vectorised sines)
+    vec4 args = vec4(
+      cx * 0.02222222 + u_time * 1.2,
+      (cy * 0.02857143 + u_time * 0.9) * 1.3,
+      (cx + cy) * 0.02 + u_time * 1.5,
+      (cx + (u_resolution.y - cy)) * 0.01428571 - u_time * 1.1
+    );
+    vec4 sines = sin(args);
+    float composite = sines.x + sines.y + sines.z + sines.w;
 
     // 2. Interactive Gaussian Concentric Ripples (completely branchless to prevent GPU warp divergence)
     float ripple_pixel = 0.0;
 
     if (u_has_ripples > 0.5) {
+      vec2 pos = vec2(cx, cy);
       for (int i = 0; i < 10; i++) {
         float strength = u_touches[i].z;
-        float tx = u_touches[i].x;
-        float ty = u_touches[i].y;
-        
-        float dx = cx - tx;
-        float dy = cy - ty;
-        float dist_sq = dx * dx + dy * dy;
+        if (strength <= 0.001) continue; // Coherent skip of inactive slots
+
+        vec2 d = pos - u_touches[i].xy;
+        float dist_sq = dot(d, d);
 
         float angle = dist_sq * 0.0008333333 - u_time * 9.0;
         float concentric_wave = sin(angle);
@@ -79,11 +76,10 @@ const fsSource = `
     float ratio = clamp((composite + 4.0) * 0.125, 0.0, 1.0);
     float angle = ratio * 6.283185307179586; // 2.0 * pi
 
-    float r = 0.50196078 + 0.49803921 * sin(angle + u_time * 1.5);
-    float g = 0.50196078 + 0.49803921 * sin(angle + 2.0 - u_time);
-    float b = 0.50196078 + 0.49803921 * sin(angle + 4.0 + u_time * 0.5);
+    vec3 sin_args = vec3(angle) + vec3(0.0, 2.0, 4.0) + vec3(u_time * 1.5, -u_time, u_time * 0.5);
+    vec3 color = vec3(0.50196078) + vec3(0.49803921) * sin(sin_args);
 
-    gl_FragColor = vec4(r, g, b, 1.0);
+    gl_FragColor = vec4(color, 1.0);
   }
 `;
 
