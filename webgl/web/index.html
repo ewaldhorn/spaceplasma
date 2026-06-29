@@ -1,107 +1,92 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <meta
-            name="description"
-            content="High performance real-time plasma software rendering demo using Modern Zig compiled to WebAssembly."
-        />
-        <title>Plasma // Zig + WASM Demo</title>
-        <link rel="stylesheet" href="style.css" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link
-            href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Share+Tech+Mono&display=swap"
-            rel="stylesheet"
-        />
-    </head>
 
-    <body>
-        <div class="scanlines"></div>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description"
+        content="High performance real-time plasma software rendering demo using Modern Zig compiled to WebAssembly." />
+    <title>Plasma // Zig + WASM Demo</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Share+Tech+Mono&display=swap"
+        rel="stylesheet" />
+</head>
 
-        <div class="app-container">
-            <header class="app-header">
-                <div class="header-glow"></div>
-                <div class="brand-logo">
-                    <span class="logo-accent">ZIG</span>.PLASMA.OS
+<body>
+    <div class="scanlines"></div>
+
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-glow"></div>
+            <div class="brand-logo">
+                <span class="logo-accent">ZIG</span>.PLASMA.OS
+            </div>
+            <div class="system-status">
+                <div class="status-indicator pulse"></div>
+                <span id="status-text">SYSTEM ONLINE</span>
+            </div>
+        </header>
+
+        <main class="visualizer-container">
+            <div class="canvas-frame">
+                <div class="loading-overlay" id="loading-overlay">
+                    <div class="spinner"></div>
+                    <p class="loading-message">COMPILING WASM BYTES...</p>
                 </div>
-                <div class="system-status">
-                    <div class="status-indicator pulse"></div>
-                    <span id="status-text">SYSTEM ONLINE</span>
-                </div>
-            </header>
 
-            <main class="visualizer-container">
-                <div class="canvas-frame">
-                    <div class="loading-overlay" id="loading-overlay">
-                        <div class="spinner"></div>
-                        <p class="loading-message">COMPILING WASM BYTES...</p>
+                <canvas id="plasma-canvas" width="800" height="600"></canvas>
+            </div>
+
+            <aside class="dashboard-panel">
+                <section class="telemetry-section glass-panel">
+                    <h2 class="panel-title">TELEMETRY</h2>
+                    <div class="stat-row">
+                        <span class="stat-label">CORE RESOLUTION</span>
+                        <span class="stat-value text-cyan">800 x 600</span>
                     </div>
+                    <div class="stat-row">
+                        <span class="stat-label">RENDER FPS</span>
+                        <span class="stat-value text-green" id="fps-counter">--</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">COMPILER TARGET</span>
+                        <span class="stat-value text-cyan">WASM32-FREE</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">GPU RENDER ENGINE</span>
+                        <span class="stat-value text-yellow">v2.0.1 (WEBGL)</span>
+                    </div>
+                </section>
 
-                    <canvas
-                        id="plasma-canvas"
-                        width="800"
-                        height="600"
-                    ></canvas>
-                </div>
+                <section class="controls-section glass-panel">
+                    <h2 class="panel-title">ENGINE STATUS</h2>
+                    <div class="stat-row">
+                        <span class="stat-label">HEAP ALLOCATION</span>
+                        <span class="stat-value">0 BYTES (STATIC)</span>
+                    </div>
+                    <div class="console-output" id="console-output">
+                        <p class="log-line">> Bootloader initialized...</p>
+                        <p class="log-line">> Ready to load module...</p>
+                    </div>
+                </section>
+            </aside>
+        </main>
 
-                <aside class="dashboard-panel">
-                    <section class="telemetry-section glass-panel">
-                        <h2 class="panel-title">TELEMETRY</h2>
-                        <div class="stat-row">
-                            <span class="stat-label">CORE RESOLUTION</span>
-                            <span class="stat-value text-cyan">800 x 600</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">RENDER FPS</span>
-                            <span class="stat-value text-green" id="fps-counter"
-                                >--</span
-                            >
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">COMPILER TARGET</span>
-                            <span class="stat-value text-cyan"
-                                >WASM32-FREE</span
-                            >
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">GPU RENDER ENGINE</span>
-                            <span class="stat-value text-yellow"
-                                >v2.0.0 (WEBGL)</span
-                            >
-                        </div>
-                    </section>
+        <footer class="app-footer">
+            <div class="footer-left">
+                <a href="https://spacestory.co.za/" target="_blank" rel="noopener noreferrer">A SPACE STORY ENGINE //
+                    TECH TEST</a>
+            </div>
+            <div class="footer-right">
+                ZIG 0.16.0 // FREESTANDING RUNTIME
+            </div>
+        </footer>
+    </div>
 
-                    <section class="controls-section glass-panel">
-                        <h2 class="panel-title">ENGINE STATUS</h2>
-                        <div class="stat-row">
-                            <span class="stat-label">HEAP ALLOCATION</span>
-                            <span class="stat-value">0 BYTES (STATIC)</span>
-                        </div>
-                        <div class="console-output" id="console-output">
-                            <p class="log-line">> Bootloader initialized...</p>
-                            <p class="log-line">> Ready to load module...</p>
-                        </div>
-                    </section>
-                </aside>
-            </main>
+    <script src="main.js" type="module"></script>
+</body>
 
-            <footer class="app-footer">
-                <div class="footer-left">
-                    <a
-                        href="https://spacestory.co.za/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >A SPACE STORY ENGINE // TECH TEST</a
-                    >
-                </div>
-                <div class="footer-right">
-                    ZIG 0.16.0 // FREESTANDING RUNTIME
-                </div>
-            </footer>
-        </div>
-
-        <script src="main.js" type="module"></script>
-    </body>
 </html>

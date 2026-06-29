@@ -2,6 +2,7 @@ import { mkdir, rm, copyFile, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import CleanCSS from "clean-css";
 import * as htmlMinifier from "html-minifier-terser";
+import { build as esbuild } from "esbuild";
 
 const WEB_DIR = "./web";
 const DIST_DIR = "./dist";
@@ -16,17 +17,18 @@ async function build() {
     } catch (e) { }
     await mkdir(DIST_DIR, { recursive: true });
 
-    // 2. Bundle and minify JavaScript with Bun's high-speed compiler
-    console.log("\t⚡ Compressing JavaScript driver...");
-    const result = await Bun.build({
-        entrypoints: [join(WEB_DIR, "main.js")],
-        outdir: DIST_DIR,
-        minify: true,
-        naming: "[name].[ext]",
-    });
-
-    if (!result.success) {
-        console.error(`\t❌ Failed to build JavaScript bundle:`, result.logs);
+    // 2. Bundle and minify JavaScript with esbuild
+    console.log("\t⚡ Compressing JavaScript driver via esbuild...");
+    try {
+        await esbuild({
+            entryPoints: [join(WEB_DIR, "main.js")],
+            outfile: join(DIST_DIR, "main.js"),
+            minify: true,
+            bundle: true,
+            format: "esm",
+        });
+    } catch (err) {
+        console.error(`\t❌ Failed to build JavaScript bundle:`, err);
         process.exit(1);
     }
 

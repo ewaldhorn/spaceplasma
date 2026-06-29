@@ -361,7 +361,7 @@ body {
    Responsive Constraints (Tablet / Mobile)
    ========================================== */
 
-@media (max-width: 900px) {
+@media (max-width: 1024px), (max-height: 768px) {
     body {
         height: auto;
         min-height: 100vh;
@@ -397,6 +397,9 @@ body {
     .canvas-frame {
         border-radius: 12px;
         margin-bottom: 0.25rem;
+        max-width: 75vh;
+        width: 100%;
+        justify-self: center;
     }
 
     .dashboard-panel {

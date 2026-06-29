@@ -123,6 +123,12 @@ async function initApp() {
 
   try {
     const canvas = document.getElementById("plasma-canvas");
+
+    // Cache the bounding rect to avoid layout thrashing during mouse/touch movement
+    let rect = canvas.getBoundingClientRect();
+    window.addEventListener("resize", () => {
+      rect = canvas.getBoundingClientRect();
+    });
     
     // Set the native resolution
     const width = 800;
@@ -180,21 +186,30 @@ async function initApp() {
 
     // Compile and instantiate the Zig WASM module
     log("Connecting WebAssembly runtime...");
-    const response = await fetch("plasma.wasm");
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch WebAssembly binary: ${response.statusText}`,
+    let instance;
+    const imports = { env: {} };
+
+    if (typeof WebAssembly.instantiateStreaming === "function") {
+      log("Streaming compilation initiated...");
+      const result = await WebAssembly.instantiateStreaming(
+        fetch("plasma.wasm"),
+        imports,
       );
+      instance = result.instance;
+    } else {
+      log("Fetching plasma.wasm bytes (fallback)...");
+      const response = await fetch("plasma.wasm");
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch WebAssembly binary: ${response.statusText}`,
+        );
+      }
+      const buffer = await response.arrayBuffer();
+      log("Compiling freestanding binary (fallback)...");
+      const module = await WebAssembly.compile(buffer);
+      log("Instantiating memory segment (fallback)...");
+      instance = await WebAssembly.instantiate(module, imports);
     }
-
-    const bufferBytes = await response.arrayBuffer();
-    log("Compiling freestanding binary...");
-    const module = await WebAssembly.compile(bufferBytes);
-
-    log("Instantiating memory segment...");
-    const instance = await WebAssembly.instantiate(module, {
-      env: {},
-    });
 
     log("Wasm binary successfully linked.");
 
@@ -292,7 +307,6 @@ async function initApp() {
 
     function processInteraction(e) {
       e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
 
       // 1. Construct array of target pointer states for THIS event
       let inputs = [];
