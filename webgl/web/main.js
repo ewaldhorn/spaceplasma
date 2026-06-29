@@ -6,7 +6,7 @@
 function log(msg, type = "info") {
   const prefix = type === "error" ? "[ERR]" : ">";
   console.log(`${prefix} ${msg}`); // Always mirror to the developer console!
-  
+
   const consoleOutput = document.getElementById("console-output");
   if (consoleOutput) {
     const line = document.createElement("p");
@@ -17,11 +17,17 @@ function log(msg, type = "info") {
   }
 }
 
-// Vertex shader program: simple full-screen quad mapping
+// Vertex shader program: simple full-screen quad mapping with varying position interpolation
 const vsSource = `
   attribute vec2 a_position;
+  varying vec3 v_pos; // x: cx (top-down), y: cy (top-down), z: cy (bottom-up)
   void main() {
     gl_Position = vec4(a_position, 0.0, 1.0);
+    v_pos = vec3(
+      (a_position.x + 1.0) * 400.0,
+      (1.0 - a_position.y) * 300.0,
+      (a_position.y + 1.0) * 300.0
+    );
   }
 `;
 
@@ -32,47 +38,51 @@ const fsSource = `
   #endif
 
   uniform float u_time;
-  uniform vec2 u_resolution;
-  uniform vec3 u_touches[10];
+  uniform vec3 u_touches[5];
   uniform float u_has_ripples;
+  varying vec3 v_pos;
 
   void main() {
-    float cx = gl_FragCoord.x;
-    float cy = u_resolution.y - gl_FragCoord.y; // Map WebGL bottom-up coords to top-down space
+    float cx = v_pos.x;
+    float cy = v_pos.y;
+    float cy_bottom_up = v_pos.z;
 
-    // 1. Base Plasma Equations (using fast, hardware-optimized vectorised sines)
+    // 1. Base Plasma Equations
     vec4 args = vec4(
       cx * 0.02222222 + u_time * 1.2,
       (cy * 0.02857143 + u_time * 0.9) * 1.3,
       (cx + cy) * 0.02 + u_time * 1.5,
-      (cx + (u_resolution.y - cy)) * 0.01428571 - u_time * 1.1
+      (cx + cy_bottom_up) * 0.01428571 - u_time * 1.1
     );
     vec4 sines = sin(args);
     float composite = sines.x + sines.y + sines.z + sines.w;
 
-    // 2. Interactive Gaussian Concentric Ripples (completely branchless to prevent GPU warp divergence)
+    // 2. Interactive Gaussian Concentric Ripples
     float ripple_pixel = 0.0;
 
     if (u_has_ripples > 0.5) {
       vec2 pos = vec2(cx, cy);
-      for (int i = 0; i < 10; i++) {
+      for (int i = 0; i < 5; i++) {
         float strength = u_touches[i].z;
-        if (strength <= 0.001) continue; // Coherent skip of inactive slots
+        if (strength <= 0.001) continue; // skip of inactive slots
 
         vec2 d = pos - u_touches[i].xy;
         float dist_sq = dot(d, d);
 
+        float weight = 1.0 / (1.0 + dist_sq * 0.00003086419); // rational decay approximation
+        if (weight < 0.02)
+          continue;
+        
         float angle = dist_sq * 0.0008333333 - u_time * 9.0;
         float concentric_wave = sin(angle);
-        float weight = 1.0 / (1.0 + dist_sq * 0.00003086419); // Fast rational decay approximation
 
         ripple_pixel += concentric_wave * weight * strength;
       }
     }
 
-    composite += ripple_pixel * 4.0; // 4.0 multiplier for vibrant wave impact
+    composite += ripple_pixel * 4.0; // 4.0 multiplier wave impact
 
-    // 3. Dynamic High-Fidelity Color Palette Mapping (using hardware-accelerated float ratios)
+    // 3. Dynamic High-Fidelity Color Palette Mapping
     float ratio = clamp((composite + 4.0) * 0.125, 0.0, 1.0);
     float angle = ratio * 6.283185307179586; // 2.0 * pi
 
@@ -125,7 +135,7 @@ async function initApp() {
     window.addEventListener("resize", () => {
       rect = canvas.getBoundingClientRect();
     });
-    
+
     // Set the native resolution
     const width = 800;
     const height = 600;
@@ -159,12 +169,8 @@ async function initApp() {
 
     // Setup uniform locations
     const uTimeLoc = gl.getUniformLocation(shaderProgram, "u_time");
-    const uResolutionLoc = gl.getUniformLocation(shaderProgram, "u_resolution");
     const uTouchesLoc = gl.getUniformLocation(shaderProgram, "u_touches");
     const uHasRipplesLoc = gl.getUniformLocation(shaderProgram, "u_has_ripples");
-
-    // u_resolution is static, set it once here to prevent redundant per-frame updates
-    gl.uniform2f(uResolutionLoc, width, height);
 
     // Setup geometry: simple full-screen quad (two triangles)
     const positionAttributeLocation = gl.getAttribLocation(shaderProgram, "a_position");
@@ -172,11 +178,11 @@ async function initApp() {
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     const vertices = new Float32Array([
       -1.0, -1.0,
-       1.0, -1.0,
-      -1.0,  1.0,
-      -1.0,  1.0,
-       1.0, -1.0,
-       1.0,  1.0,
+      1.0, -1.0,
+      -1.0, 1.0,
+      -1.0, 1.0,
+      1.0, -1.0,
+      1.0, 1.0,
     ]);
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
@@ -222,11 +228,11 @@ async function initApp() {
 
     log(`State telemetry base address resolved: 0x${touchDataPtr.toString(16)}`);
 
-    // Create a direct, shared array view into WASM memory space for the 10 touch points
+    // Create a direct, shared array view into WASM memory space for the 5 touch points
     const touchDataView = new Float32Array(
       memory.buffer,
       touchDataPtr,
-      10 * 3 // 10 touch points * 3 components [x, y, strength]
+      5 * 3 // 5 touch points * 3 components [x, y, strength]
     );
 
     // Hide loading overlay
@@ -274,7 +280,7 @@ async function initApp() {
 
       // Fast check if any touch ripples are active to bypass pixel loops
       let hasRipples = 0.0;
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 5; i++) {
         if (touchDataView[i * 3 + 2] > 0.001) {
           hasRipples = 1.0;
           break;
@@ -291,9 +297,9 @@ async function initApp() {
 
     // ---------------------------------------------------------------------
     // Stable Multi-Touch & Mouse Tracker
-    // Tracks up to 10 parallel inputs and assigns stable slots (0..9)
+    // Tracks up to 5 parallel inputs and assigns stable slots (0..4)
     // ---------------------------------------------------------------------
-    const maxSlots = 10;
+    const maxSlots = 5;
     const interactionSlots = new Array(maxSlots).fill(null).map(() => ({
       id: null, // unique id (e.g., 'mouse' or touch.identifier)
       active: false,
@@ -408,7 +414,7 @@ async function initApp() {
   } catch (err) {
     log(`CRITICAL BOOT ERROR: ${err.message}`, "error");
     console.error(err);
-    
+
     const localStatusText = document.getElementById("status-text");
     if (localStatusText) {
       localStatusText.innerText = "KERNEL PANIC";

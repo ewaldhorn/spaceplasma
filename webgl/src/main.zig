@@ -14,18 +14,18 @@ pub const TouchPoint = struct {
     ripple_strength: f32 = 0.0,
 };
 
-// State management for live interactive coordinates (10 parallel channels)
-pub var touch_points = [_]TouchPoint{.{}} ** 10;
+// State management for live interactive coordinates (5 parallel channels)
+pub var touch_points = [_]TouchPoint{.{}} ** 5;
 
 // Flat data exported to WebGL fragment shader: [x0, y0, strength0, x1, y1, strength1, ...]
-pub var touch_data: [10 * 3]f32 = [_]f32{0.0} ** 30;
+pub var touch_data: [5 * 3]f32 = [_]f32{0.0} ** 15;
 
 // Rigid frame clock
 pub var internal_clock: f32 = 0.0;
 
 /// Receives real-time scaled interactive coordinates from Javascript driver for specific touch channel
 pub fn set_touch_state(index: usize, mx: f32, my: f32, pressed: bool, active: bool) void {
-    if (index >= 10) return;
+    if (index >= 5) return;
     touch_points[index].x = mx;
     touch_points[index].y = my;
     touch_points[index].pressed = pressed;
@@ -35,7 +35,7 @@ pub fn set_touch_state(index: usize, mx: f32, my: f32, pressed: bool, active: bo
 /// Initializes standard application state
 pub fn init() void {
     // Initialize touch_data off-screen
-    for (0..10) |i| {
+    for (0..5) |i| {
         touch_data[i * 3 + 0] = -2000.0;
         touch_data[i * 3 + 1] = -2000.0;
         touch_data[i * 3 + 2] = 0.0;
@@ -50,7 +50,7 @@ pub fn update(real_t: f32) void {
     internal_clock += 0.005;
 
     // 1. Smoothly lerp the active interaction strength for each touch channel (glow in/out dynamics)
-    inline for (0..10) |i| {
+    inline for (0..5) |i| {
         const point = &touch_points[i];
         var target_strength: f32 = 0.0;
         if (point.active and point.x >= 0.0 and point.x <= screen_width_f) {
