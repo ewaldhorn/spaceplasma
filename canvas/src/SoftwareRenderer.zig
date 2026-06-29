@@ -33,13 +33,19 @@ pub fn SoftwareRenderer(
         };
 
         // --------------------------------------------------------------------------------------------
+        /// Fast division by 255 for values in 0..65535
+        inline fn div255(val: u32) u32 {
+            return (val + 1 + (val >> 8)) >> 8;
+        }
+
+        // --------------------------------------------------------------------------------------------
         /// Draws a single pixel to the buffer with bounds checking
         pub fn putPixel(x: i32, y: i32, colour: Colour) void {
-            if (x < 0 or x >= screen_width or y < 0 or y >= screen_height) return;
+            const ux = @as(u32, @bitCast(x));
+            const uy = @as(u32, @bitCast(y));
+            if (ux >= screen_width or uy >= screen_height) return;
 
-            const ux: usize = @intCast(x);
-            const uy: usize = @intCast(y);
-            const index = uy * screen_width + ux;
+            const index = @as(usize, uy) * screen_width + @as(usize, ux);
 
             if (colour.a == 255) {
                 pixels[index] = colour;
@@ -49,9 +55,9 @@ pub fn SoftwareRenderer(
                 const inv_a = 255 - a;
 
                 const dst = &pixels[index];
-                dst.r = @intCast((@as(u32, colour.r) * a + @as(u32, dst.r) * inv_a) / 255);
-                dst.g = @intCast((@as(u32, colour.g) * a + @as(u32, dst.g) * inv_a) / 255);
-                dst.b = @intCast((@as(u32, colour.b) * a + @as(u32, dst.b) * inv_a) / 255);
+                dst.r = @intCast(div255(@as(u32, colour.r) * a + @as(u32, dst.r) * inv_a));
+                dst.g = @intCast(div255(@as(u32, colour.g) * a + @as(u32, dst.g) * inv_a));
+                dst.b = @intCast(div255(@as(u32, colour.b) * a + @as(u32, dst.b) * inv_a));
                 dst.a = 255; // Keep target buffer fully opaque
             }
         }
@@ -86,7 +92,7 @@ pub fn SoftwareRenderer(
         // --------------------------------------------------------------------------------------------
         /// Draws a horizontal line optimized with direct buffer access
         pub fn drawHLine(x1: i32, x2: i32, y: i32, colour: Colour) void {
-            if (y < 0 or y >= screen_height) return;
+            if (@as(u32, @bitCast(y)) >= screen_height) return;
 
             const start_x = @max(0, @min(x1, x2));
             const end_x = @min(screen_width - 1, @max(x1, x2));
@@ -107,9 +113,9 @@ pub fn SoftwareRenderer(
 
                 for (0..len) |i| {
                     const dst = &pixels[index + i];
-                    dst.r = @intCast((cr * a + @as(u32, dst.r) * inv_a) / 255);
-                    dst.g = @intCast((cg * a + @as(u32, dst.g) * inv_a) / 255);
-                    dst.b = @intCast((cb * a + @as(u32, dst.b) * inv_a) / 255);
+                    dst.r = @intCast(div255(cr * a + @as(u32, dst.r) * inv_a));
+                    dst.g = @intCast(div255(cg * a + @as(u32, dst.g) * inv_a));
+                    dst.b = @intCast(div255(cb * a + @as(u32, dst.b) * inv_a));
                     dst.a = 255; // Keep target buffer fully opaque
                 }
             }
@@ -118,7 +124,7 @@ pub fn SoftwareRenderer(
         // --------------------------------------------------------------------------------------------
         /// Draws a vertical line optimized with direct buffer access
         pub fn drawVLine(x: i32, y1: i32, y2: i32, colour: Colour) void {
-            if (x < 0 or x >= screen_width) return;
+            if (@as(u32, @bitCast(x)) >= screen_width) return;
 
             const start_y = @max(0, @min(y1, y2));
             const end_y = @min(screen_height - 1, @max(y1, y2));
@@ -143,9 +149,9 @@ pub fn SoftwareRenderer(
                 for (0..len) |i| {
                     const index = (@as(usize, @intCast(start_y)) + i) * screen_width + ux;
                     const dst = &pixels[index];
-                    dst.r = @intCast((cr * a + @as(u32, dst.r) * inv_a) / 255);
-                    dst.g = @intCast((cg * a + @as(u32, dst.g) * inv_a) / 255);
-                    dst.b = @intCast((cb * a + @as(u32, dst.b) * inv_a) / 255);
+                    dst.r = @intCast(div255(cr * a + @as(u32, dst.r) * inv_a));
+                    dst.g = @intCast(div255(cg * a + @as(u32, dst.g) * inv_a));
+                    dst.b = @intCast(div255(cb * a + @as(u32, dst.b) * inv_a));
                     dst.a = 255;
                 }
             }
@@ -203,9 +209,9 @@ pub fn SoftwareRenderer(
                     const index = @as(usize, @intCast(cy)) * screen_width + @as(usize, @intCast(start_x));
                     for (0..len) |i| {
                         const dst = &pixels[index + i];
-                        dst.r = @intCast((cr * a + @as(u32, dst.r) * inv_a) / 255);
-                        dst.g = @intCast((cg * a + @as(u32, dst.g) * inv_a) / 255);
-                        dst.b = @intCast((cb * a + @as(u32, dst.b) * inv_a) / 255);
+                        dst.r = @intCast(div255(cr * a + @as(u32, dst.r) * inv_a));
+                        dst.g = @intCast(div255(cg * a + @as(u32, dst.g) * inv_a));
+                        dst.b = @intCast(div255(cb * a + @as(u32, dst.b) * inv_a));
                         dst.a = 255;
                     }
                 }
@@ -339,7 +345,7 @@ pub fn SoftwareRenderer(
 
         // --------------------------------------------------------------------------------------------
         fn shimmerPutPixel(x: i32, y: i32, colour: Colour, count: *usize) void {
-            const val = shimmer_lut[count.* % shimmer_lut_size];
+            const val = shimmer_lut[count.* & (shimmer_lut_size - 1)];
             count.* += 1;
 
             var c = colour;
